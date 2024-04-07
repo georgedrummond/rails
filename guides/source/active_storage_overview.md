@@ -224,12 +224,6 @@ azure:
   container: ""
 ```
 
-Add the [`azure-storage-blob`](https://github.com/Azure/azure-storage-ruby) gem to your `Gemfile`:
-
-```ruby
-gem "azure-storage-blob", "~> 2.0", require: false
-```
-
 ### Google Cloud Storage Service
 
 Declare a Google Cloud Storage service in `config/storage.yml`:
