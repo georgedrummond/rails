@@ -22,6 +22,7 @@ module ActiveStorage
         handle_errors do
           content_disposition = content_disposition_with(filename: filename, type: disposition) if disposition && filename
 
+          # https://learn.microsoft.com/en-us/rest/api/storageservices/put-blob?tabs=microsoft-entra-id
           client.create_block_blob(container, key, IO.try_convert(io) || io, content_md5: checksum, content_type: content_type, content_disposition: content_disposition, metadata: custom_metadata)
         end
       end
@@ -35,6 +36,7 @@ module ActiveStorage
       else
         instrument :download, key: key do
           handle_errors do
+            # https://learn.microsoft.com/en-us/rest/api/storageservices/get-blob?tabs=microsoft-entra-id
             _, io = client.get_blob(container, key)
             io.force_encoding(Encoding::BINARY)
           end
@@ -45,6 +47,7 @@ module ActiveStorage
     def download_chunk(key, range)
       instrument :download_chunk, key: key, range: range do
         handle_errors do
+          # https://learn.microsoft.com/en-us/rest/api/storageservices/get-blob?tabs=microsoft-entra-id
           _, io = client.get_blob(container, key, start_range: range.begin, end_range: range.exclude_end? ? range.end - 1 : range.end)
           io.force_encoding(Encoding::BINARY)
         end
@@ -53,6 +56,7 @@ module ActiveStorage
 
     def delete(key)
       instrument :delete, key: key do
+        # https://learn.microsoft.com/en-us/rest/api/storageservices/delete-blob?tabs=microsoft-entra-id
         client.delete_blob(container, key)
       rescue Azure::Core::Http::HTTPError => e
         raise unless e.type == "BlobNotFound"
@@ -65,9 +69,11 @@ module ActiveStorage
         marker = nil
 
         loop do
+          # https://learn.microsoft.com/en-us/rest/api/storageservices/list-blobs?tabs=microsoft-entra-id
           results = client.list_blobs(container, prefix: prefix, marker: marker)
 
           results.each do |blob|
+            # https://learn.microsoft.com/en-us/rest/api/storageservices/delete-blob?tabs=microsoft-entra-id
             client.delete_blob(container, blob.name)
           end
 
@@ -78,6 +84,7 @@ module ActiveStorage
 
     def exist?(key)
       instrument :exist, key: key do |payload|
+        # https://learn.microsoft.com/en-us/rest/api/storageservices/get-blob-properties?tabs=microsoft-entra-id
         answer = blob_for(key).present?
         payload[:exist] = answer
         answer
@@ -86,6 +93,7 @@ module ActiveStorage
 
     def url_for_direct_upload(key, expires_in:, content_type:, content_length:, checksum:, custom_metadata: {})
       instrument :url, key: key do |payload|
+        # TODO: How does signer work?
         generated_url = signer.signed_uri(
           uri_for(key), false,
           service: "b",
@@ -108,6 +116,7 @@ module ActiveStorage
     def compose(source_keys, destination_key, filename: nil, content_type: nil, disposition: nil, custom_metadata: {})
       content_disposition = content_disposition_with(type: disposition, filename: filename) if disposition && filename
 
+      # https://learn.microsoft.com/en-us/rest/api/storageservices/append-block?tabs=microsoft-entra-id
       client.create_append_blob(
         container,
         destination_key,
@@ -117,6 +126,7 @@ module ActiveStorage
       ).tap do |blob|
         source_keys.each do |source_key|
           stream(source_key) do |chunk|
+            # https://learn.microsoft.com/en-us/rest/api/storageservices/append-block?tabs=microsoft-entra-id
             client.append_blob_block(container, blob.name, chunk)
           end
         end
@@ -125,6 +135,7 @@ module ActiveStorage
 
     private
       def private_url(key, expires_in:, filename:, disposition:, content_type:, **)
+        # TODO: Investigate
         signer.signed_uri(
           uri_for(key), false,
           service: "b",
@@ -141,10 +152,12 @@ module ActiveStorage
 
 
       def uri_for(key)
+        # TODO: Investigate
         client.generate_uri("#{container}/#{key}")
       end
 
       def blob_for(key)
+        # https://learn.microsoft.com/en-us/rest/api/storageservices/get-blob-properties?tabs=microsoft-entra-id
         client.get_blob_properties(container, key)
       rescue Azure::Core::Http::HTTPError
         false
@@ -164,6 +177,7 @@ module ActiveStorage
         raise ActiveStorage::FileNotFoundError unless blob.present?
 
         while offset < blob.properties[:content_length]
+          # https://learn.microsoft.com/en-us/rest/api/storageservices/get-blob?tabs=microsoft-entra-id
           _, chunk = client.get_blob(container, key, start_range: offset, end_range: offset + chunk_size - 1)
           yield chunk.force_encoding(Encoding::BINARY)
           offset += chunk_size
